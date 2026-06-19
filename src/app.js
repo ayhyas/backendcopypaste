@@ -45,6 +45,9 @@ io.on('connection', (socket) => {
   });
 });
 
+// ─── Trust proxy (required on Render / any reverse-proxy host) ───────────────
+app.set('trust proxy', 1);
+
 // ─── Security middleware ──────────────────────────────────────────────────────
 app.use(helmet());
 app.use(
