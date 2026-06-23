@@ -39,6 +39,11 @@ const clipSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    workspace: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Workspace',
+      default: null,
+    },
   },
   { timestamps: true }
 );

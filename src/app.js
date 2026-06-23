@@ -11,6 +11,7 @@ const jwt = require('jsonwebtoken');
 const connectDB = require('./config/db');
 const authRoutes = require('./routes/auth');
 const clipRoutes = require('./routes/clips');
+const workspaceRoutes = require('./routes/workspaces');
 const errorHandler = require('./middleware/errorHandler');
 
 connectDB();
@@ -92,6 +93,7 @@ app.use((req, _res, next) => {
 // ─── Routes ──────────────────────────────────────────────────────────────────
 app.use('/api/auth', authRoutes);
 app.use('/api/clips', clipRoutes);
+app.use('/api/workspaces', workspaceRoutes);
 
 app.get('/health', (_req, res) =>
   res.json({ status: 'ok', timestamp: new Date().toISOString() })

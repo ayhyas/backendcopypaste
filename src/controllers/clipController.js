@@ -8,9 +8,14 @@ exports.getClips = async (req, res, next) => {
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 50));
     const skip = (page - 1) * limit;
 
+    const filter = {};
+    if (req.query.workspace) {
+      filter.workspace = req.query.workspace;
+    }
+
     const [clips, total] = await Promise.all([
-      Clip.find().sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
-      Clip.countDocuments(),
+      Clip.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+      Clip.countDocuments(filter),
     ]);
 
     res.json({
@@ -31,7 +36,7 @@ exports.getClips = async (req, res, next) => {
 
 exports.createClip = async (req, res, next) => {
   try {
-    const { content, type, language, fileName, mimeType, fileSize } = req.body;
+    const { content, type, language, fileName, mimeType, fileSize, workspaceId } = req.body;
 
     if (!content || (type !== 'file' && content.trim() === '')) {
       return res.status(400).json({ success: false, message: 'Content cannot be empty' });
@@ -50,6 +55,7 @@ exports.createClip = async (req, res, next) => {
       fileSize: fileSize || null,
       author: req.user._id,
       authorName: req.user.username,
+      workspace: workspaceId || null,
     });
 
     req.io.emit('clip:new', { data: clip });
