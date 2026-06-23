@@ -44,6 +44,12 @@ const clipSchema = new mongoose.Schema(
       ref: 'Workspace',
       default: null,
     },
+    title: {
+      type: String,
+      default: null,
+      trim: true,
+      maxlength: 100,
+    },
   },
   { timestamps: true }
 );

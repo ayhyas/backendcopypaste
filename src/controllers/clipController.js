@@ -46,6 +46,8 @@ exports.createClip = async (req, res, next) => {
       return res.status(413).json({ success: false, message: 'Content exceeds the 12 MB limit' });
     }
 
+    const { title } = req.body;
+
     const clip = await Clip.create({
       content,
       type: type || 'text',
@@ -56,11 +58,33 @@ exports.createClip = async (req, res, next) => {
       author: req.user._id,
       authorName: req.user.username,
       workspace: workspaceId || null,
+      title: title?.trim() || null,
     });
 
     req.io.emit('clip:new', { data: clip });
 
     res.status(201).json({ success: true, data: clip });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.updateClip = async (req, res, next) => {
+  try {
+    const clip = await Clip.findById(req.params.id);
+    if (!clip) {
+      return res.status(404).json({ success: false, message: 'Clip not found' });
+    }
+    if (clip.author.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'You can only edit your own clips' });
+    }
+
+    const { title } = req.body;
+    if (title !== undefined) clip.title = title?.trim() || null;
+
+    await clip.save();
+    req.io.emit('clip:updated', { data: clip });
+    res.json({ success: true, data: clip });
   } catch (error) {
     next(error);
   }
