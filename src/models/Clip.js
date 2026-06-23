@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 
-const CLIP_TYPES = ['text', 'code', 'image', 'link'];
+const CLIP_TYPES = ['text', 'code', 'image', 'link', 'file'];
 
 const clipSchema = new mongoose.Schema(
   {
@@ -16,6 +16,18 @@ const clipSchema = new mongoose.Schema(
     },
     language: {
       type: String,
+      default: null,
+    },
+    fileName: {
+      type: String,
+      default: null,
+    },
+    mimeType: {
+      type: String,
+      default: null,
+    },
+    fileSize: {
+      type: Number,
       default: null,
     },
     author: {

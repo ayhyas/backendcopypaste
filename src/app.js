@@ -24,6 +24,7 @@ const io = new Server(server, {
     origin: process.env.CLIENT_ORIGIN || '*',
     methods: ['GET', 'POST'],
   },
+  maxHttpBufferSize: 12 * 1024 * 1024, // 12 MB — needed for large file clips
 });
 
 io.use((socket, next) => {

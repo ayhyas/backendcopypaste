@@ -1,6 +1,6 @@
 const Clip = require('../models/Clip');
 
-const MAX_CLIP_BYTES = 5 * 1024 * 1024; // 5 MB
+const MAX_CLIP_BYTES = 12 * 1024 * 1024; // 12 MB (covers ~9 MB binary files stored as base64)
 
 exports.getClips = async (req, res, next) => {
   try {
@@ -31,20 +31,23 @@ exports.getClips = async (req, res, next) => {
 
 exports.createClip = async (req, res, next) => {
   try {
-    const { content, type, language } = req.body;
+    const { content, type, language, fileName, mimeType, fileSize } = req.body;
 
-    if (!content || content.trim() === '') {
+    if (!content || (type !== 'file' && content.trim() === '')) {
       return res.status(400).json({ success: false, message: 'Content cannot be empty' });
     }
 
     if (Buffer.byteLength(content, 'utf8') > MAX_CLIP_BYTES) {
-      return res.status(413).json({ success: false, message: 'Content exceeds the 5MB limit' });
+      return res.status(413).json({ success: false, message: 'Content exceeds the 12 MB limit' });
     }
 
     const clip = await Clip.create({
       content,
       type: type || 'text',
       language: language || null,
+      fileName: fileName || null,
+      mimeType: mimeType || null,
+      fileSize: fileSize || null,
       author: req.user._id,
       authorName: req.user.username,
     });
