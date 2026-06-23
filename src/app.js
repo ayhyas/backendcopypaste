@@ -84,6 +84,22 @@ io.on('connection', (socket) => {
     io.to(targetId).emit('screen:ice', { fromId: socket.id, candidate });
   });
 
+  // Canvas-frame fallback (for old browsers where WebRTC ICE fails)
+  // Viewer opts into fallback room so broadcaster can target frames at them only
+  socket.on('screen:watch-fallback', ({ broadcasterId }) => {
+    socket.join(`fallback:${broadcasterId}`);
+    io.to(broadcasterId).emit('screen:fallback-viewer');
+  });
+
+  socket.on('screen:leave-fallback', ({ broadcasterId }) => {
+    socket.leave(`fallback:${broadcasterId}`);
+  });
+
+  // Broadcaster emits a JPEG frame; server relays only to fallback viewers
+  socket.on('screen:frame', ({ frame }) => {
+    socket.to(`fallback:${socket.id}`).emit('screen:frame', { frame });
+  });
+
   socket.on('disconnect', () => {
     if (activeBroadcaster?.socketId === socket.id) {
       activeBroadcaster = null;
