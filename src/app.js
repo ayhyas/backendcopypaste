@@ -40,9 +40,55 @@ io.use((socket, next) => {
   }
 });
 
+// Active screen-share broadcaster (one at a time)
+let activeBroadcaster = null; // { socketId, username }
+
 io.on('connection', (socket) => {
   console.log(`Socket connected: ${socket.id} (user: ${socket.userId})`);
+
+  // Tell a newly joined user if someone is already broadcasting
+  if (activeBroadcaster) {
+    socket.emit('screen:available', activeBroadcaster);
+  }
+
+  // ─── Screen share signaling ─────────────────────────────────────────────
+  socket.on('screen:start', ({ username }) => {
+    activeBroadcaster = { socketId: socket.id, username };
+    socket.broadcast.emit('screen:available', activeBroadcaster);
+  });
+
+  socket.on('screen:stop', () => {
+    if (activeBroadcaster?.socketId === socket.id) {
+      activeBroadcaster = null;
+      io.emit('screen:ended');
+    }
+  });
+
+  // Viewer → server → broadcaster: "I want to watch"
+  socket.on('screen:join', ({ broadcasterId }) => {
+    io.to(broadcasterId).emit('screen:viewer-joined', { viewerId: socket.id });
+  });
+
+  // Broadcaster → server → viewer: SDP offer
+  socket.on('screen:offer', ({ viewerId, offer }) => {
+    io.to(viewerId).emit('screen:offer', { broadcasterId: socket.id, offer });
+  });
+
+  // Viewer → server → broadcaster: SDP answer
+  socket.on('screen:answer', ({ broadcasterId, answer }) => {
+    io.to(broadcasterId).emit('screen:answer', { viewerId: socket.id, answer });
+  });
+
+  // Both directions: ICE candidates
+  socket.on('screen:ice', ({ targetId, candidate }) => {
+    io.to(targetId).emit('screen:ice', { fromId: socket.id, candidate });
+  });
+
   socket.on('disconnect', () => {
+    if (activeBroadcaster?.socketId === socket.id) {
+      activeBroadcaster = null;
+      io.emit('screen:ended');
+    }
     console.log(`Socket disconnected: ${socket.id}`);
   });
 });
