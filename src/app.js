@@ -104,6 +104,11 @@ io.on('connection', (socket) => {
     socket.to(`fallback:${socket.id}`).emit('screen:frame', { frame });
   });
 
+  // Viewer requests a quality change; relay to broadcaster with viewer identity
+  socket.on('screen:quality-request', ({ broadcasterId, preset }) => {
+    io.to(broadcasterId).emit('screen:quality-request', { viewerId: socket.id, preset });
+  });
+
   socket.on('disconnect', () => {
     if (activeBroadcaster?.socketId === socket.id) {
       activeBroadcaster = null;
