@@ -98,7 +98,7 @@ exports.deleteClip = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Clip not found' });
     }
 
-    if (clip.author.toString() !== req.user._id.toString()) {
+    if (clip.author.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
       return res.status(403).json({ success: false, message: 'You can only delete your own clips' });
     }
 

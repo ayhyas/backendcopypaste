@@ -7,6 +7,7 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
 
 const connectDB = require('./config/db');
 const User = require('./models/User');
@@ -15,7 +16,14 @@ const clipRoutes = require('./routes/clips');
 const workspaceRoutes = require('./routes/workspaces');
 const errorHandler = require('./middleware/errorHandler');
 
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'yahya';
+
 connectDB();
+
+// Ensure the designated admin account has the admin role once the DB is ready
+mongoose.connection.once('open', () => {
+  User.findOneAndUpdate({ username: ADMIN_USERNAME }, { role: 'admin' }).catch(() => {});
+});
 
 const app = express();
 const server = http.createServer(app);
@@ -52,7 +60,7 @@ let activeBroadcaster = null; // { socketId, username }
 const onlineUsersMap = new Map();
 
 function broadcastOnlineUsers() {
-  const users = [...onlineUsersMap.values()].map(({ username, profilePic }) => ({ username, profilePic }));
+  const users = [...onlineUsersMap.values()].map(({ userId, username, profilePic, role }) => ({ userId, username, profilePic, role }));
   io.emit('users:online', { users });
 }
 
@@ -64,19 +72,20 @@ function updateOnlineUserPic(userId, profilePic) {
 
 io.on('connection', async (socket) => {
   try {
-    const userData = await User.findById(socket.userId).select('username profilePic').lean();
+    const userData = await User.findById(socket.userId).select('username profilePic role').lean();
     if (!userData) { socket.disconnect(); return; }
     socket.username   = userData.username;
     socket.profilePic = userData.profilePic || null;
+    socket.role       = userData.role || 'user';
   } catch { socket.disconnect(); return; }
 
-  console.log(`Socket connected: ${socket.id} (user: ${socket.username})`);
+  console.log(`Socket connected: ${socket.id} (user: ${socket.username}, role: ${socket.role})`);
 
   const existing = onlineUsersMap.get(socket.userId);
   if (existing) {
     existing.count++;
   } else {
-    onlineUsersMap.set(socket.userId, { username: socket.username, profilePic: socket.profilePic, count: 1 });
+    onlineUsersMap.set(socket.userId, { userId: socket.userId, username: socket.username, profilePic: socket.profilePic, role: socket.role, count: 1 });
   }
   broadcastOnlineUsers();
 
@@ -137,6 +146,24 @@ io.on('connection', async (socket) => {
   // Viewer requests a quality change; relay to broadcaster with viewer identity
   socket.on('screen:quality-request', ({ broadcasterId, preset }) => {
     io.to(broadcasterId).emit('screen:quality-request', { viewerId: socket.id, preset });
+  });
+
+  // ─── Admin-only events ───────────────────────────────────────────────────
+  socket.on('screen:admin-stop', () => {
+    if (socket.role !== 'admin' || !activeBroadcaster) return;
+    io.to(activeBroadcaster.socketId).emit('screen:force-stop');
+    activeBroadcaster = null;
+    io.emit('screen:ended');
+  });
+
+  socket.on('user:kick', ({ userId }) => {
+    if (socket.role !== 'admin') return;
+    for (const [, s] of io.sockets.sockets) {
+      if (s.userId === userId && s.id !== socket.id) {
+        s.emit('kicked');
+        s.disconnect(true);
+      }
+    }
   });
 
   socket.on('disconnect', () => {

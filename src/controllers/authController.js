@@ -6,6 +6,8 @@ const signToken = (id) =>
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
   });
 
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'yahya';
+
 const sendTokenResponse = (user, statusCode, res) => {
   const token = signToken(user._id);
   res.status(statusCode).json({
@@ -16,6 +18,7 @@ const sendTokenResponse = (user, statusCode, res) => {
       username:   user.username,
       email:      user.email,
       profilePic: user.profilePic || null,
+      role:       user.role,
     },
   });
 };
@@ -57,6 +60,12 @@ exports.login = async (req, res, next) => {
       });
     }
 
+    // Auto-promote the designated admin account
+    if (user.username === ADMIN_USERNAME && user.role !== 'admin') {
+      user.role = 'admin';
+      await user.save();
+    }
+
     sendTokenResponse(user, 200, res);
   } catch (error) {
     next(error);
@@ -71,6 +80,7 @@ exports.getMe = async (req, res) => {
       username:   req.user.username,
       email:      req.user.email,
       profilePic: req.user.profilePic || null,
+      role:       req.user.role,
     },
   });
 };

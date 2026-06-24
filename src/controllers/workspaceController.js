@@ -46,8 +46,8 @@ exports.renameWorkspace = async (req, res, next) => {
     if (!workspace) {
       return res.status(404).json({ success: false, message: 'Workspace not found' });
     }
-    if (workspace.owner.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ success: false, message: 'Only the creator can rename this workspace' });
+    if (workspace.owner.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Only the creator or an admin can rename this workspace' });
     }
 
     const { name } = req.body;
@@ -71,8 +71,8 @@ exports.deleteWorkspace = async (req, res, next) => {
     if (!workspace) {
       return res.status(404).json({ success: false, message: 'Workspace not found' });
     }
-    if (workspace.owner.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ success: false, message: 'Only the creator can delete this workspace' });
+    if (workspace.owner.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Only the creator or an admin can delete this workspace' });
     }
 
     await Clip.updateMany({ workspace: workspace._id }, { workspace: null });

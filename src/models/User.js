@@ -30,6 +30,11 @@ const userSchema = new mongoose.Schema(
       type: String, // base64 data URL, compressed 256×256 JPEG
       default: null,
     },
+    role: {
+      type: String,
+      enum: ['user', 'admin'],
+      default: 'user',
+    },
   },
   { timestamps: true }
 );
