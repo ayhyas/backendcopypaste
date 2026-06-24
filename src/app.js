@@ -166,9 +166,9 @@ io.on('connection', async (socket) => {
   socket.on('screen:raise-hand', () => {
     if (socket.role === 'admin') return; // admin never needs permission
     handRaiseMap.set(socket.userId, {
-      socketId: socket.id,
-      userId:   socket.userId,
-      username: socket.username,
+      socketId:   socket.id,
+      userId:     socket.userId,
+      username:   socket.username,
       profilePic: socket.profilePic,
     });
     // Check if any admin is online; if not, tell the requester immediately
@@ -179,6 +179,12 @@ io.on('connection', async (socket) => {
     if (!adminOnline) {
       socket.emit('screen:no-admin');
     }
+    // Alert every admin with a dedicated event so they can show a prominent notification
+    notifyAdmins('screen:hand-raised', {
+      userId:     socket.userId,
+      username:   socket.username,
+      profilePic: socket.profilePic,
+    });
     broadcastHandQueue();
   });
 
