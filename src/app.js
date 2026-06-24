@@ -59,9 +59,23 @@ let activeBroadcaster = null; // { socketId, username }
 // userId → { username, profilePic, count }
 const onlineUsersMap = new Map();
 
+// userId → { socketId, userId, username, profilePic } — pending screen-share requests
+const handRaiseMap = new Map();
+
 function broadcastOnlineUsers() {
   const users = [...onlineUsersMap.values()].map(({ userId, username, profilePic, role }) => ({ userId, username, profilePic, role }));
   io.emit('users:online', { users });
+}
+
+function notifyAdmins(event, data) {
+  for (const [, s] of io.sockets.sockets) {
+    if (s.role === 'admin') s.emit(event, data);
+  }
+}
+
+function broadcastHandQueue() {
+  const queue = [...handRaiseMap.values()].map(({ userId, username, profilePic }) => ({ userId, username, profilePic }));
+  notifyAdmins('screen:hand-queue', { queue });
 }
 
 // Called by authController when a user updates their profile pic mid-session
@@ -148,6 +162,49 @@ io.on('connection', async (socket) => {
     io.to(broadcasterId).emit('screen:quality-request', { viewerId: socket.id, preset });
   });
 
+  // ─── Screen share permission (raise hand) ───────────────────────────────
+  socket.on('screen:raise-hand', () => {
+    if (socket.role === 'admin') return; // admin never needs permission
+    handRaiseMap.set(socket.userId, {
+      socketId: socket.id,
+      userId:   socket.userId,
+      username: socket.username,
+      profilePic: socket.profilePic,
+    });
+    // Check if any admin is online; if not, tell the requester immediately
+    let adminOnline = false;
+    for (const [, s] of io.sockets.sockets) {
+      if (s.role === 'admin') { adminOnline = true; break; }
+    }
+    if (!adminOnline) {
+      socket.emit('screen:no-admin');
+    }
+    broadcastHandQueue();
+  });
+
+  socket.on('screen:lower-hand', () => {
+    handRaiseMap.delete(socket.userId);
+    broadcastHandQueue();
+  });
+
+  socket.on('screen:approve', ({ userId }) => {
+    if (socket.role !== 'admin') return;
+    const entry = handRaiseMap.get(userId);
+    if (!entry) return;
+    handRaiseMap.delete(userId);
+    io.to(entry.socketId).emit('screen:approved');
+    broadcastHandQueue();
+  });
+
+  socket.on('screen:deny', ({ userId }) => {
+    if (socket.role !== 'admin') return;
+    const entry = handRaiseMap.get(userId);
+    if (!entry) return;
+    handRaiseMap.delete(userId);
+    io.to(entry.socketId).emit('screen:denied');
+    broadcastHandQueue();
+  });
+
   // ─── Admin-only events ───────────────────────────────────────────────────
   socket.on('screen:admin-stop', () => {
     if (socket.role !== 'admin' || !activeBroadcaster) return;
@@ -170,6 +227,11 @@ io.on('connection', async (socket) => {
     if (activeBroadcaster?.socketId === socket.id) {
       activeBroadcaster = null;
       io.emit('screen:ended');
+    }
+    // Clean up hand-raise queue if disconnecting user had a pending request
+    if (handRaiseMap.has(socket.userId)) {
+      handRaiseMap.delete(socket.userId);
+      broadcastHandQueue();
     }
     const entry = onlineUsersMap.get(socket.userId);
     if (entry) {
