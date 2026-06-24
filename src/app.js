@@ -15,6 +15,7 @@ const authRoutes      = require('./routes/auth');
 const clipRoutes      = require('./routes/clips');
 const workspaceRoutes = require('./routes/workspaces');
 const drawingRoutes   = require('./routes/drawings');
+const resourceRoutes  = require('./routes/resources');
 const errorHandler = require('./middleware/errorHandler');
 
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'yahya';
@@ -304,7 +305,8 @@ app.use((req, _res, next) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/clips', clipRoutes);
 app.use('/api/workspaces', workspaceRoutes);
-app.use('/api/drawings', drawingRoutes);
+app.use('/api/drawings',  drawingRoutes);
+app.use('/api/resources', resourceRoutes);
 
 app.get('/health', (_req, res) =>
   res.json({ status: 'ok', timestamp: new Date().toISOString() })
