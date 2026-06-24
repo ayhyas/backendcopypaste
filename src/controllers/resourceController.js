@@ -4,7 +4,9 @@ const MAX_IMAGE_BYTES = 3 * 1024 * 1024; // 3 MB base64
 
 exports.getResources = async (req, res) => {
   try {
-    const resources = await Resource.find().sort({ createdAt: -1 }).lean();
+    const filter = {};
+    if (req.query.workspace) filter.workspace = req.query.workspace;
+    const resources = await Resource.find(filter).sort({ createdAt: -1 }).lean();
     res.json({ success: true, data: resources });
   } catch {
     res.status(500).json({ success: false, message: 'Server error' });
@@ -13,7 +15,7 @@ exports.getResources = async (req, res) => {
 
 exports.createResource = async (req, res) => {
   try {
-    const { type, name, content } = req.body;
+    const { type, name, content, workspaceId } = req.body;
     if (!type || !content) {
       return res.status(400).json({ success: false, message: 'type and content are required' });
     }
@@ -27,6 +29,7 @@ exports.createResource = async (req, res) => {
       type,
       name:       (name || '').trim() || (type === 'image' ? 'Image' : 'Text'),
       content,
+      workspace:  workspaceId || null,
       author:     req.user._id,
       authorName: req.user.username,
     });
