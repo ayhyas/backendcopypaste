@@ -12,9 +12,10 @@ const sendTokenResponse = (user, statusCode, res) => {
     success: true,
     token,
     user: {
-      id: user._id,
-      username: user.username,
-      email: user.email,
+      id:         user._id,
+      username:   user.username,
+      email:      user.email,
+      profilePic: user.profilePic || null,
     },
   });
 };
@@ -66,9 +67,47 @@ exports.getMe = async (req, res) => {
   res.json({
     success: true,
     user: {
-      id: req.user._id,
-      username: req.user.username,
-      email: req.user.email,
+      id:         req.user._id,
+      username:   req.user.username,
+      email:      req.user.email,
+      profilePic: req.user.profilePic || null,
     },
   });
+};
+
+exports.updateProfilePic = async (req, res, next) => {
+  try {
+    const { profilePic } = req.body;
+
+    if (!profilePic) {
+      return res.status(400).json({ success: false, message: 'No image provided' });
+    }
+    if (!profilePic.startsWith('data:image/')) {
+      return res.status(400).json({ success: false, message: 'Invalid image format' });
+    }
+    if (profilePic.length > 512 * 1024) {
+      return res.status(400).json({ success: false, message: 'Image too large (max 384 KB)' });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      req.user._id,
+      { profilePic },
+      { new: true }
+    );
+
+    // Broadcast so all clients can update clip-card author avatars live
+    req.io.emit('user:profilePic', { username: user.username, profilePic });
+
+    res.json({
+      success: true,
+      user: {
+        id:         user._id,
+        username:   user.username,
+        email:      user.email,
+        profilePic: user.profilePic,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
 };
