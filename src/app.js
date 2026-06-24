@@ -79,7 +79,7 @@ function notifyAdmins(event, data) {
 }
 
 function broadcastHandQueue() {
-  const queue = [...handRaiseMap.values()].map(({ userId, username, profilePic }) => ({ userId, username, profilePic }));
+  const queue = [...handRaiseMap.values()].map(({ userId, username, profilePic, wsId }) => ({ userId, username, profilePic, wsId: wsId || null }));
   notifyAdmins('screen:hand-queue', { queue });
 }
 
@@ -232,13 +232,14 @@ io.on('connection', async (socket) => {
   });
 
   // ─── Screen share permission (raise hand) ───────────────────────────────
-  socket.on('screen:raise-hand', () => {
+  socket.on('screen:raise-hand', ({ wsId } = {}) => {
     if (socket.role === 'admin') return; // admin never needs permission
     handRaiseMap.set(socket.userId, {
       socketId:   socket.id,
       userId:     socket.userId,
       username:   socket.username,
       profilePic: socket.profilePic,
+      wsId:       wsId || null,
     });
     // Check if any admin is online; if not, tell the requester immediately
     let adminOnline = false;
@@ -253,6 +254,7 @@ io.on('connection', async (socket) => {
       userId:     socket.userId,
       username:   socket.username,
       profilePic: socket.profilePic,
+      wsId:       wsId || null,
     });
     broadcastHandQueue();
   });
