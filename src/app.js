@@ -9,6 +9,7 @@ const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 
 const connectDB = require('./config/db');
+const User = require('./models/User');
 const authRoutes = require('./routes/auth');
 const clipRoutes = require('./routes/clips');
 const workspaceRoutes = require('./routes/workspaces');
@@ -47,18 +48,37 @@ io.use((socket, next) => {
 // Active screen-share broadcaster (one at a time)
 let activeBroadcaster = null; // { socketId, username }
 
-// Track unique online users (userId → number of open sockets)
-const userSocketCounts = new Map();
+// userId → { username, profilePic, count }
+const onlineUsersMap = new Map();
 
-function broadcastUserCount() {
-  io.emit('users:count', { count: userSocketCounts.size });
+function broadcastOnlineUsers() {
+  const users = [...onlineUsersMap.values()].map(({ username, profilePic }) => ({ username, profilePic }));
+  io.emit('users:online', { users });
 }
 
-io.on('connection', (socket) => {
-  console.log(`Socket connected: ${socket.id} (user: ${socket.userId})`);
+// Called by authController when a user updates their profile pic mid-session
+function updateOnlineUserPic(userId, profilePic) {
+  const entry = onlineUsersMap.get(String(userId));
+  if (entry) { entry.profilePic = profilePic; broadcastOnlineUsers(); }
+}
 
-  userSocketCounts.set(socket.userId, (userSocketCounts.get(socket.userId) || 0) + 1);
-  broadcastUserCount();
+io.on('connection', async (socket) => {
+  try {
+    const userData = await User.findById(socket.userId).select('username profilePic').lean();
+    if (!userData) { socket.disconnect(); return; }
+    socket.username   = userData.username;
+    socket.profilePic = userData.profilePic || null;
+  } catch { socket.disconnect(); return; }
+
+  console.log(`Socket connected: ${socket.id} (user: ${socket.username})`);
+
+  const existing = onlineUsersMap.get(socket.userId);
+  if (existing) {
+    existing.count++;
+  } else {
+    onlineUsersMap.set(socket.userId, { username: socket.username, profilePic: socket.profilePic, count: 1 });
+  }
+  broadcastOnlineUsers();
 
   // Tell a newly joined user if someone is already broadcasting
   if (activeBroadcaster) {
@@ -124,10 +144,12 @@ io.on('connection', (socket) => {
       activeBroadcaster = null;
       io.emit('screen:ended');
     }
-    const remaining = (userSocketCounts.get(socket.userId) || 1) - 1;
-    if (remaining <= 0) userSocketCounts.delete(socket.userId);
-    else userSocketCounts.set(socket.userId, remaining);
-    broadcastUserCount();
+    const entry = onlineUsersMap.get(socket.userId);
+    if (entry) {
+      entry.count--;
+      if (entry.count <= 0) onlineUsersMap.delete(socket.userId);
+    }
+    broadcastOnlineUsers();
     console.log(`Socket disconnected: ${socket.id}`);
   });
 });
@@ -169,9 +191,10 @@ app.use('/api/auth/', authLimiter);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// ─── Inject io into every request ────────────────────────────────────────────
+// ─── Inject io + helpers into every request ───────────────────────────────────
 app.use((req, _res, next) => {
   req.io = io;
+  req.updateOnlineUserPic = updateOnlineUserPic;
   next();
 });
 

@@ -95,6 +95,8 @@ exports.updateProfilePic = async (req, res, next) => {
       { new: true }
     );
 
+    // Keep the online users panel in sync for live sessions
+    req.updateOnlineUserPic?.(req.user._id, profilePic);
     // Broadcast so all clients can update clip-card author avatars live
     req.io.emit('user:profilePic', { username: user.username, profilePic });
 
