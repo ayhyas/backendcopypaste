@@ -332,7 +332,7 @@ app.use(
   cors({
     origin: process.env.CLIENT_ORIGIN || '*',
     methods: ['GET', 'POST', 'DELETE', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-workspace-token'],
   })
 );
 
