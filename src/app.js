@@ -108,6 +108,12 @@ io.on('connection', async (socket) => {
     socket.emit('screen:available', activeBroadcaster);
   }
 
+  // Send current hand-raise queue to a newly connected admin
+  if (socket.role === 'admin' && handRaiseMap.size > 0) {
+    const queue = [...handRaiseMap.values()].map(({ userId, username, profilePic }) => ({ userId, username, profilePic }));
+    socket.emit('screen:hand-queue', { queue });
+  }
+
   // ─── Screen share signaling ─────────────────────────────────────────────
   socket.on('screen:start', ({ username }) => {
     activeBroadcaster = { socketId: socket.id, username };

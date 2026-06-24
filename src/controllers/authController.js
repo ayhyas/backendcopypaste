@@ -35,6 +35,13 @@ exports.register = async (req, res, next) => {
     }
 
     const user = await User.create({ username, email, password });
+
+    // Promote on first registration if this is the designated admin username
+    if (user.username === ADMIN_USERNAME && user.role !== 'admin') {
+      user.role = 'admin';
+      await user.save();
+    }
+
     sendTokenResponse(user, 201, res);
   } catch (error) {
     next(error);
