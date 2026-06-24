@@ -1,9 +1,13 @@
 const Clip = require('../models/Clip');
+const { checkWorkspaceAccess } = require('../utils/wsToken');
 
 const MAX_CLIP_BYTES = 12 * 1024 * 1024; // 12 MB (covers ~9 MB binary files stored as base64)
 
 exports.getClips = async (req, res, next) => {
   try {
+    const deny = await checkWorkspaceAccess(req, req.query.workspace);
+    if (deny) return res.status(deny.status).json({ success: false, message: deny.message, code: deny.code });
+
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 50));
     const skip = (page - 1) * limit;
@@ -38,6 +42,9 @@ exports.createClip = async (req, res, next) => {
   try {
     const { content, type, language, fileName, mimeType, fileSize, workspaceId } = req.body;
 
+    const deny = await checkWorkspaceAccess(req, workspaceId);
+    if (deny) return res.status(deny.status).json({ success: false, message: deny.message, code: deny.code });
+
     if (!content || (type !== 'file' && content.trim() === '')) {
       return res.status(400).json({ success: false, message: 'Content cannot be empty' });
     }
@@ -61,7 +68,9 @@ exports.createClip = async (req, res, next) => {
       title: title?.trim() || null,
     });
 
-    req.io.emit('clip:new', { data: clip });
+    const room = workspaceId ? 'ws:' + workspaceId : null;
+    if (room) req.io.to(room).emit('clip:new', { data: clip });
+    else req.io.emit('clip:new', { data: clip });
 
     res.status(201).json({ success: true, data: clip });
   } catch (error) {
@@ -83,7 +92,9 @@ exports.updateClip = async (req, res, next) => {
     if (title !== undefined) clip.title = title?.trim() || null;
 
     await clip.save();
-    req.io.emit('clip:updated', { data: clip });
+    const updRoom = clip.workspace ? 'ws:' + clip.workspace : null;
+    if (updRoom) req.io.to(updRoom).emit('clip:updated', { data: clip });
+    else req.io.emit('clip:updated', { data: clip });
     res.json({ success: true, data: clip });
   } catch (error) {
     next(error);
@@ -102,10 +113,10 @@ exports.deleteClip = async (req, res, next) => {
       return res.status(403).json({ success: false, message: 'You can only delete your own clips' });
     }
 
+    const delRoom = clip.workspace ? 'ws:' + clip.workspace : null;
     await clip.deleteOne();
-
-    req.io.emit('clip:deleted', { id: req.params.id });
-
+    if (delRoom) req.io.to(delRoom).emit('clip:deleted', { id: req.params.id });
+    else req.io.emit('clip:deleted', { id: req.params.id });
     res.json({ success: true, message: 'Clip deleted successfully' });
   } catch (error) {
     next(error);

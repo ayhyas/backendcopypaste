@@ -1,5 +1,6 @@
 const Workspace = require('../models/Workspace');
-const Clip = require('../models/Clip');
+const Clip      = require('../models/Clip');
+const { signWsToken } = require('../utils/wsToken');
 
 exports.getWorkspaces = async (req, res, next) => {
   try {
@@ -157,13 +158,15 @@ exports.verifyLock = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Workspace not found' });
     }
     if (!workspace.lockPassword) {
-      return res.json({ success: true });
+      // Workspace is not locked — issue a token so the client can still join the room
+      return res.json({ success: true, accessToken: signWsToken(req.params.id, req.user._id) });
     }
     const { password } = req.body;
     if (password !== workspace.lockPassword) {
       return res.status(401).json({ success: false, message: 'Incorrect password' });
     }
-    res.json({ success: true });
+    const accessToken = signWsToken(req.params.id, req.user._id);
+    res.json({ success: true, accessToken });
   } catch (error) {
     next(error);
   }

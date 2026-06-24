@@ -119,6 +119,30 @@ io.on('connection', async (socket) => {
     socket.emit('screen:hand-queue', { queue });
   }
 
+  // ─── Workspace room access ──────────────────────────────────────────────
+  socket.on('ws:join', async ({ wsId, wsToken }) => {
+    if (!wsId) return;
+    try {
+      const ws = await (require('./models/Workspace')).findById(wsId).select('lockPassword').lean();
+      if (!ws) return;
+      // Admin and unlocked workspaces: allow unconditionally
+      if (socket.role === 'admin' || !ws.lockPassword) {
+        socket.join('ws:' + wsId);
+        return;
+      }
+      // Locked: validate token
+      if (!wsToken) return;
+      const d = jwt.verify(wsToken, process.env.JWT_SECRET);
+      if (d.type === 'ws-access' && d.wsId === String(wsId) && d.uid === String(socket.userId)) {
+        socket.join('ws:' + wsId);
+      }
+    } catch { /* invalid token — don't join */ }
+  });
+
+  socket.on('ws:leave', ({ wsId }) => {
+    if (wsId) socket.leave('ws:' + wsId);
+  });
+
   // ─── Screen share signaling ─────────────────────────────────────────────
   socket.on('screen:start', ({ username }) => {
     activeBroadcaster = { socketId: socket.id, username };
