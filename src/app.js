@@ -26,6 +26,10 @@ const io = new Server(server, {
     methods: ['GET', 'POST'],
   },
   maxHttpBufferSize: 12 * 1024 * 1024, // 12 MB — needed for large file clips
+  transports: ['websocket', 'polling'],  // WebSocket first; eliminates upgrade round-trip
+  pingInterval: 10000,                   // detect dead connections faster (default: 25000)
+  pingTimeout:   5000,                   // (default: 20000)
+  perMessageDeflate: false,              // JPEG frames are pre-compressed; skip WebSocket deflate
 });
 
 io.use((socket, next) => {
