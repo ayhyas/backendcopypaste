@@ -47,8 +47,18 @@ io.use((socket, next) => {
 // Active screen-share broadcaster (one at a time)
 let activeBroadcaster = null; // { socketId, username }
 
+// Track unique online users (userId → number of open sockets)
+const userSocketCounts = new Map();
+
+function broadcastUserCount() {
+  io.emit('users:count', { count: userSocketCounts.size });
+}
+
 io.on('connection', (socket) => {
   console.log(`Socket connected: ${socket.id} (user: ${socket.userId})`);
+
+  userSocketCounts.set(socket.userId, (userSocketCounts.get(socket.userId) || 0) + 1);
+  broadcastUserCount();
 
   // Tell a newly joined user if someone is already broadcasting
   if (activeBroadcaster) {
@@ -114,6 +124,10 @@ io.on('connection', (socket) => {
       activeBroadcaster = null;
       io.emit('screen:ended');
     }
+    const remaining = (userSocketCounts.get(socket.userId) || 1) - 1;
+    if (remaining <= 0) userSocketCounts.delete(socket.userId);
+    else userSocketCounts.set(socket.userId, remaining);
+    broadcastUserCount();
     console.log(`Socket disconnected: ${socket.id}`);
   });
 });
