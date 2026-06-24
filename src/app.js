@@ -56,7 +56,7 @@ io.use((socket, next) => {
 });
 
 // Active screen-share broadcaster (one at a time)
-let activeBroadcaster = null; // { socketId, username }
+let activeBroadcaster = null; // { socketId, username, wsId }
 
 // userId → { username, profilePic, count }
 const onlineUsersMap = new Map();
@@ -83,6 +83,21 @@ function broadcastHandQueue() {
   notifyAdmins('screen:hand-queue', { queue });
 }
 
+async function broadcastWorkspacePresence(wsId) {
+  try {
+    const sockets = await io.in('ws:' + wsId).fetchSockets();
+    const seen    = new Set();
+    const users   = [];
+    for (const s of sockets) {
+      if (!seen.has(s.userId)) {
+        seen.add(s.userId);
+        users.push({ userId: s.userId, username: s.username, profilePic: s.profilePic || null, role: s.role });
+      }
+    }
+    io.to('ws:' + wsId).emit('ws:users-online', { wsId, users });
+  } catch {}
+}
+
 // Called by authController when a user updates their profile pic mid-session
 function updateOnlineUserPic(userId, profilePic) {
   const entry = onlineUsersMap.get(String(userId));
@@ -100,6 +115,8 @@ io.on('connection', async (socket) => {
 
   console.log(`Socket connected: ${socket.id} (user: ${socket.username}, role: ${socket.role})`);
 
+  socket._wsRooms = new Set(); // track workspace rooms this socket has joined
+
   const existing = onlineUsersMap.get(socket.userId);
   if (existing) {
     existing.count++;
@@ -107,11 +124,6 @@ io.on('connection', async (socket) => {
     onlineUsersMap.set(socket.userId, { userId: socket.userId, username: socket.username, profilePic: socket.profilePic, role: socket.role, count: 1 });
   }
   broadcastOnlineUsers();
-
-  // Tell a newly joined user if someone is already broadcasting
-  if (activeBroadcaster) {
-    socket.emit('screen:available', activeBroadcaster);
-  }
 
   // Send current hand-raise queue to a newly connected admin
   if (socket.role === 'admin' && handRaiseMap.size > 0) {
@@ -125,35 +137,54 @@ io.on('connection', async (socket) => {
     try {
       const ws = await (require('./models/Workspace')).findById(wsId).select('lockPassword').lean();
       if (!ws) return;
-      // Admin and unlocked workspaces: allow unconditionally
+
+      let allowed = false;
       if (socket.role === 'admin' || !ws.lockPassword) {
-        socket.join('ws:' + wsId);
-        return;
+        allowed = true;
+      } else if (wsToken) {
+        const d = jwt.verify(wsToken, process.env.JWT_SECRET);
+        if (d.type === 'ws-access' && d.wsId === String(wsId) && d.uid === String(socket.userId)) {
+          allowed = true;
+        }
       }
-      // Locked: validate token
-      if (!wsToken) return;
-      const d = jwt.verify(wsToken, process.env.JWT_SECRET);
-      if (d.type === 'ws-access' && d.wsId === String(wsId) && d.uid === String(socket.userId)) {
-        socket.join('ws:' + wsId);
+      if (!allowed) return;
+
+      socket.join('ws:' + wsId);
+      socket._wsRooms.add(wsId);
+      await broadcastWorkspacePresence(wsId);
+
+      // Tell joiner if there's an active broadcast in this workspace
+      if (activeBroadcaster?.wsId === wsId) {
+        socket.emit('screen:available', activeBroadcaster);
       }
-    } catch { /* invalid token — don't join */ }
+    } catch { /* invalid token or DB error — don't join */ }
   });
 
-  socket.on('ws:leave', ({ wsId }) => {
-    if (wsId) socket.leave('ws:' + wsId);
+  socket.on('ws:leave', async ({ wsId }) => {
+    if (!wsId) return;
+    socket.leave('ws:' + wsId);
+    socket._wsRooms.delete(wsId);
+    await broadcastWorkspacePresence(wsId);
   });
 
   // ─── Screen share signaling ─────────────────────────────────────────────
-  socket.on('screen:start', ({ username }) => {
-    activeBroadcaster = { socketId: socket.id, username };
-    socket.broadcast.emit('screen:available', activeBroadcaster);
+  socket.on('screen:start', ({ username, wsId }) => {
+    activeBroadcaster = { socketId: socket.id, username, wsId: wsId || null };
+    // Notify only users in the same workspace room (excluding broadcaster)
+    if (wsId) {
+      socket.to('ws:' + wsId).emit('screen:available', activeBroadcaster);
+    } else {
+      socket.broadcast.emit('screen:available', activeBroadcaster);
+    }
   });
 
   socket.on('screen:stop', () => {
     if (activeBroadcaster?.socketId === socket.id) {
+      const wsId = activeBroadcaster.wsId;
       activeBroadcaster = null;
       streamViewerMap.clear();
-      io.emit('screen:ended');
+      if (wsId) io.to('ws:' + wsId).emit('screen:ended');
+      else io.emit('screen:ended');
     }
   });
 
@@ -279,10 +310,12 @@ io.on('connection', async (socket) => {
   // ─── Admin-only events ───────────────────────────────────────────────────
   socket.on('screen:admin-stop', () => {
     if (socket.role !== 'admin' || !activeBroadcaster) return;
+    const wsId = activeBroadcaster.wsId;
     io.to(activeBroadcaster.socketId).emit('screen:force-stop');
     activeBroadcaster = null;
     streamViewerMap.clear();
-    io.emit('screen:ended');
+    if (wsId) io.to('ws:' + wsId).emit('screen:ended');
+    else io.emit('screen:ended');
   });
 
   socket.on('user:kick', ({ userId }) => {
@@ -296,10 +329,15 @@ io.on('connection', async (socket) => {
   });
 
   socket.on('disconnect', () => {
+    // Snapshot workspace rooms before Socket.io clears them
+    const myWsRooms = [...socket._wsRooms];
+
     if (activeBroadcaster?.socketId === socket.id) {
+      const wsId = activeBroadcaster.wsId;
       activeBroadcaster = null;
       streamViewerMap.clear();
-      io.emit('screen:ended');
+      if (wsId) io.to('ws:' + wsId).emit('screen:ended');
+      else io.emit('screen:ended');
     }
     // Clean up hand-raise queue if disconnecting user had a pending request
     if (handRaiseMap.has(socket.userId)) {
@@ -319,6 +357,8 @@ io.on('connection', async (socket) => {
       if (entry.count <= 0) onlineUsersMap.delete(socket.userId);
     }
     broadcastOnlineUsers();
+    // Update presence for every workspace room this socket was in
+    for (const wsId of myWsRooms) broadcastWorkspacePresence(wsId);
     console.log(`Socket disconnected: ${socket.id}`);
   });
 });
