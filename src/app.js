@@ -64,6 +64,9 @@ const onlineUsersMap = new Map();
 // userId → { socketId, userId, username, profilePic } — pending screen-share requests
 const handRaiseMap = new Map();
 
+// socketId → { socketId, userId, username, profilePic } — viewers watching active broadcast
+const streamViewerMap = new Map();
+
 function broadcastOnlineUsers() {
   const users = [...onlineUsersMap.values()].map(({ userId, username, profilePic, role }) => ({ userId, username, profilePic, role }));
   io.emit('users:online', { users });
@@ -125,13 +128,16 @@ io.on('connection', async (socket) => {
   socket.on('screen:stop', () => {
     if (activeBroadcaster?.socketId === socket.id) {
       activeBroadcaster = null;
+      streamViewerMap.clear();
       io.emit('screen:ended');
     }
   });
 
   // Viewer → server → broadcaster: "I want to watch"
   socket.on('screen:join', ({ broadcasterId }) => {
-    io.to(broadcasterId).emit('screen:viewer-joined', { viewerId: socket.id });
+    streamViewerMap.set(socket.id, { socketId: socket.id, userId: socket.userId, username: socket.username, profilePic: socket.profilePic });
+    // Include viewer identity so broadcaster can display the viewer list
+    io.to(broadcasterId).emit('screen:viewer-joined', { viewerId: socket.id, username: socket.username, profilePic: socket.profilePic });
   });
 
   // Broadcaster → server → viewer: SDP offer
@@ -219,11 +225,39 @@ io.on('connection', async (socket) => {
     broadcastHandQueue();
   });
 
+  // ─── Mic audio signaling ────────────────────────────────────────────────
+  // Viewer → broadcaster: SDP offer for mic audio stream
+  socket.on('mic:offer', ({ broadcasterId, offer }) => {
+    io.to(broadcasterId).emit('mic:offer', { viewerId: socket.id, offer });
+  });
+
+  // Broadcaster → viewer: SDP answer
+  socket.on('mic:answer', ({ viewerId, answer }) => {
+    io.to(viewerId).emit('mic:answer', { answer });
+  });
+
+  // ICE candidates (both directions)
+  socket.on('mic:ice', ({ targetId, candidate }) => {
+    io.to(targetId).emit('mic:ice', { fromId: socket.id, candidate });
+  });
+
+  // Viewer stopped their mic
+  socket.on('mic:stop', ({ broadcasterId }) => {
+    io.to(broadcasterId).emit('mic:stop', { viewerId: socket.id });
+  });
+
+  // Broadcaster (or admin) mutes a specific viewer's mic
+  socket.on('mic:mute', ({ targetId }) => {
+    if (activeBroadcaster?.socketId !== socket.id && socket.role !== 'admin') return;
+    io.to(targetId).emit('mic:muted');
+  });
+
   // ─── Admin-only events ───────────────────────────────────────────────────
   socket.on('screen:admin-stop', () => {
     if (socket.role !== 'admin' || !activeBroadcaster) return;
     io.to(activeBroadcaster.socketId).emit('screen:force-stop');
     activeBroadcaster = null;
+    streamViewerMap.clear();
     io.emit('screen:ended');
   });
 
@@ -240,12 +274,20 @@ io.on('connection', async (socket) => {
   socket.on('disconnect', () => {
     if (activeBroadcaster?.socketId === socket.id) {
       activeBroadcaster = null;
+      streamViewerMap.clear();
       io.emit('screen:ended');
     }
     // Clean up hand-raise queue if disconnecting user had a pending request
     if (handRaiseMap.has(socket.userId)) {
       handRaiseMap.delete(socket.userId);
       broadcastHandQueue();
+    }
+    // Notify broadcaster if a viewer disconnected
+    if (streamViewerMap.has(socket.id)) {
+      streamViewerMap.delete(socket.id);
+      if (activeBroadcaster) {
+        io.to(activeBroadcaster.socketId).emit('screen:viewer-left', { viewerId: socket.id });
+      }
     }
     const entry = onlineUsersMap.get(socket.userId);
     if (entry) {
