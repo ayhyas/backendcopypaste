@@ -43,6 +43,24 @@ exports.createDrawing = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+exports.renameDrawing = async (req, res, next) => {
+  try {
+    const drawing = await Drawing.findById(req.params.id);
+    if (!drawing) return res.status(404).json({ success: false, message: 'Drawing not found' });
+    if (drawing.author.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Not authorised' });
+    }
+    const title = (req.body.title || '').trim() || 'Untitled';
+    drawing.title = title;
+    await drawing.save();
+    const room    = drawing.workspace ? 'ws:' + drawing.workspace : null;
+    const payload = { id: drawing._id, title };
+    if (room) req.io.to(room).emit('drawing:renamed', payload);
+    else      req.io.emit('drawing:renamed', payload);
+    res.json({ success: true, data: { title } });
+  } catch (err) { next(err); }
+};
+
 exports.deleteDrawing = async (req, res, next) => {
   try {
     const drawing = await Drawing.findById(req.params.id);
